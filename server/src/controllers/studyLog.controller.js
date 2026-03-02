@@ -1,5 +1,7 @@
 import StudyLog from "../models/StudyLog.js";
+import StudyPlan from "../models/StudyPlan.js";
 import updateMastery from "../services/mastery.service.js";
+import  {generateOptimizedPlan}  from "../services/optimization.service.js";
 
 export const createStudyLog = async (req, res) => {
   try {
@@ -20,6 +22,7 @@ export const createStudyLog = async (req, res) => {
       return res.status(400).json({ message: "Correct cannot exceed attempted" });
     }
 
+    // 1. Save study log
     const log = await StudyLog.create({
       userId,
       topicId,
@@ -28,13 +31,35 @@ export const createStudyLog = async (req, res) => {
       timeSpentMinutes,
     });
 
-    // Recalculate mastery immediately
-    const updatedStats = await updateMastery(userId, topicId);
+    // 2. Update mastery
+    await updateMastery(userId, topicId);
+
+    // 3. Check if active plan exists
+    const activePlan = await StudyPlan.findOne({
+      userId,
+      isActive: true,
+    });
+
+    let regeneratedPlan = null;
+
+    if (activePlan) {
+      const optimizationResult = await generateOptimizedPlan(
+        userId,
+        activePlan.dailyAvailableHours,
+        activePlan.deadline,
+        activePlan.targetMastery
+      );
+
+      activePlan.topicDistribution = optimizationResult.allocation;
+      await activePlan.save();
+
+      regeneratedPlan = activePlan;
+    }
 
     res.status(201).json({
-      message: "Study log created",
+      message: "Study log created and plan updated",
       log,
-      updatedStats,
+      regeneratedPlan,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
