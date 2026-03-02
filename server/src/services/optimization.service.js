@@ -1,5 +1,6 @@
 import Topic from "../models/Topic.js";
 import UserTopicStats from "../models/UserTopicStats.js";
+import { topologicalSort } from "../graph/dependencyResolver.js";
 
 export const generateOptimizedPlan = async (
   userId,
@@ -14,15 +15,25 @@ export const generateOptimizedPlan = async (
     throw new Error("Deadline must be in the future");
   }
 
-  const totalDays =
-    Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+  const totalDays = Math.ceil(
+    (endDate - today) / (1000 * 60 * 60 * 24)
+  );
 
   const totalAvailableHours = totalDays * dailyAvailableHours;
 
-  // Fetch all topics
-  const topics = await Topic.find();
+  // Fetch topics WITH prerequisites populated
+  const topics = await Topic.find().populate("prerequisites");
 
-  // Fetch user stats
+  // Build topological order
+  const sortedTopicIds = topologicalSort(topics);
+
+  // Create topic map for quick lookup
+  const topicMap = {};
+  topics.forEach((topic) => {
+    topicMap[topic._id.toString()] = topic;
+  });
+
+  // Fetch user mastery stats
   const stats = await UserTopicStats.find({ userId });
 
   const statsMap = {};
@@ -32,7 +43,10 @@ export const generateOptimizedPlan = async (
 
   let topicCalculations = [];
 
-  for (const topic of topics) {
+  // Process topics in dependency order
+  for (const topicId of sortedTopicIds) {
+    const topic = topicMap[topicId];
+
     const currentMastery =
       statsMap[topic._id.toString()] || 0;
 
@@ -43,16 +57,25 @@ export const generateOptimizedPlan = async (
 
     if (deficit === 0) continue;
 
+    // Enforce prerequisite mastery threshold
+    const prereqNotMet = topic.prerequisites.some((pre) => {
+      const preMastery =
+        statsMap[pre._id.toString()] || 0;
+      return preMastery < targetMastery * 0.6;
+    });
+
+    if (prereqNotMet) continue;
+
     const efficiency =
       (deficit * topic.importanceWeight) /
       topic.estimatedHoursToMaster;
 
     topicCalculations.push({
       topicId: topic._id,
-      name: topic.name,
       deficit,
       efficiency,
-      estimatedHoursToMaster: topic.estimatedHoursToMaster,
+      estimatedHoursToMaster:
+        topic.estimatedHoursToMaster,
     });
   }
 
