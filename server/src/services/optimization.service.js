@@ -1,3 +1,4 @@
+import solver from "javascript-lp-solver";
 import Topic from "../models/Topic.js";
 import UserTopicStats from "../models/UserTopicStats.js";
 import { topologicalSort } from "../graph/dependencyResolver.js";
@@ -36,7 +37,14 @@ export const generateOptimizedPlan = async (
     statsMap[stat.topicId.toString()] = stat.masteryScore;
   });
 
-  let eligibleTopics = [];
+  let model = {
+    optimize: "score",
+    opType: "max",
+    constraints: {
+      totalHours: { max: totalAvailableHours },
+    },
+    variables: {},
+  };
 
   for (const topicId of sortedTopicIds) {
     const topic = topicMap[topicId];
@@ -63,63 +71,32 @@ export const generateOptimizedPlan = async (
       (deficit * topic.importanceWeight) /
       topic.estimatedHoursToMaster;
 
-    eligibleTopics.push({
-      topicId: topic._id,
-      efficiency,
-      maxHours: topic.estimatedHoursToMaster,
-    });
-  }
+    const variableName = `x_${topic._id.toString()}`;
 
-  if (!eligibleTopics.length) {
-    return {
-      totalDays,
-      totalAvailableHours,
-      allocation: [],
+    model.variables[variableName] = {
+      score: efficiency,
+      totalHours: 1,
     };
+
+    model.constraints[variableName] = {
+      max: topic.estimatedHoursToMaster,
+    };
+
+    model.variables[variableName][variableName] = 1;
   }
 
-  const totalEfficiency = eligibleTopics.reduce(
-    (sum, t) => sum + t.efficiency,
-    0
-  );
+  const results = solver.Solve(model);
 
   let allocation = [];
 
-  let remainingHours = totalAvailableHours;
-
-  // Proportional allocation
-  for (const topic of eligibleTopics) {
-    let allocated =
-      (totalAvailableHours * topic.efficiency) /
-      totalEfficiency;
-
-    allocated = Math.min(allocated, topic.maxHours);
-
-    allocation.push({
-      topicId: topic.topicId,
-      allocatedHours: Math.floor(allocated),
-    });
-
-    remainingHours -= Math.floor(allocated);
-  }
-
-  // Redistribute leftover hours greedily
-  allocation.sort((a, b) => {
-    const topicA = eligibleTopics.find(
-      (t) => t.topicId.toString() === a.topicId.toString()
-    );
-    const topicB = eligibleTopics.find(
-      (t) => t.topicId.toString() === b.topicId.toString()
-    );
-    return topicB.efficiency - topicA.efficiency;
+  Object.keys(results).forEach((key) => {
+    if (key.startsWith("x_") && results[key] > 0) {
+      allocation.push({
+        topicId: key.replace("x_", ""),
+        allocatedHours: Math.floor(results[key]),
+      });
+    }
   });
-
-  for (const topic of allocation) {
-    if (remainingHours <= 0) break;
-
-    topic.allocatedHours += 1;
-    remainingHours -= 1;
-  }
 
   return {
     totalDays,
