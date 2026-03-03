@@ -21,19 +21,14 @@ export const generateOptimizedPlan = async (
 
   const totalAvailableHours = totalDays * dailyAvailableHours;
 
-  // Fetch topics WITH prerequisites populated
   const topics = await Topic.find().populate("prerequisites");
-
-  // Build topological order
   const sortedTopicIds = topologicalSort(topics);
 
-  // Create topic map for quick lookup
   const topicMap = {};
   topics.forEach((topic) => {
     topicMap[topic._id.toString()] = topic;
   });
 
-  // Fetch user mastery stats
   const stats = await UserTopicStats.find({ userId });
 
   const statsMap = {};
@@ -41,9 +36,8 @@ export const generateOptimizedPlan = async (
     statsMap[stat.topicId.toString()] = stat.masteryScore;
   });
 
-  let topicCalculations = [];
+  let eligibleTopics = [];
 
-  // Process topics in dependency order
   for (const topicId of sortedTopicIds) {
     const topic = topicMap[topicId];
 
@@ -57,7 +51,6 @@ export const generateOptimizedPlan = async (
 
     if (deficit === 0) continue;
 
-    // Enforce prerequisite mastery threshold
     const prereqNotMet = topic.prerequisites.some((pre) => {
       const preMastery =
         statsMap[pre._id.toString()] || 0;
@@ -70,37 +63,62 @@ export const generateOptimizedPlan = async (
       (deficit * topic.importanceWeight) /
       topic.estimatedHoursToMaster;
 
-    topicCalculations.push({
+    eligibleTopics.push({
       topicId: topic._id,
-      deficit,
       efficiency,
-      estimatedHoursToMaster:
-        topic.estimatedHoursToMaster,
+      maxHours: topic.estimatedHoursToMaster,
     });
   }
 
-  // Sort by efficiency descending
-  topicCalculations.sort(
-    (a, b) => b.efficiency - a.efficiency
+  if (!eligibleTopics.length) {
+    return {
+      totalDays,
+      totalAvailableHours,
+      allocation: [],
+    };
+  }
+
+  const totalEfficiency = eligibleTopics.reduce(
+    (sum, t) => sum + t.efficiency,
+    0
   );
 
-  let remainingHours = totalAvailableHours;
   let allocation = [];
 
-  for (const topic of topicCalculations) {
-    if (remainingHours <= 0) break;
+  let remainingHours = totalAvailableHours;
 
-    const hoursToAllocate = Math.min(
-      topic.estimatedHoursToMaster,
-      remainingHours
-    );
+  // Proportional allocation
+  for (const topic of eligibleTopics) {
+    let allocated =
+      (totalAvailableHours * topic.efficiency) /
+      totalEfficiency;
+
+    allocated = Math.min(allocated, topic.maxHours);
 
     allocation.push({
       topicId: topic.topicId,
-      allocatedHours: hoursToAllocate,
+      allocatedHours: Math.floor(allocated),
     });
 
-    remainingHours -= hoursToAllocate;
+    remainingHours -= Math.floor(allocated);
+  }
+
+  // Redistribute leftover hours greedily
+  allocation.sort((a, b) => {
+    const topicA = eligibleTopics.find(
+      (t) => t.topicId.toString() === a.topicId.toString()
+    );
+    const topicB = eligibleTopics.find(
+      (t) => t.topicId.toString() === b.topicId.toString()
+    );
+    return topicB.efficiency - topicA.efficiency;
+  });
+
+  for (const topic of allocation) {
+    if (remainingHours <= 0) break;
+
+    topic.allocatedHours += 1;
+    remainingHours -= 1;
   }
 
   return {
