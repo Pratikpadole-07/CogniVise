@@ -2,6 +2,7 @@ import solver from "javascript-lp-solver";
 import Topic from "../models/Topic.js";
 import UserTopicStats from "../models/UserTopicStats.js";
 import { topologicalSort } from "../graph/dependencyResolver.js";
+import { predictMasteryGain } from "../utils/masteryPredictor.js";
 
 export const generateOptimizedPlan = async (
   userId,
@@ -92,8 +93,13 @@ export const generateOptimizedPlan = async (
   Object.keys(results).forEach((key) => {
     if (key.startsWith("x_") && results[key] > 0) {
       allocation.push({
-        topicId: key.replace("x_", ""),
-        allocatedHours: Math.floor(results[key]),
+        topicId: topic.topicId,
+        allocatedHours: Math.floor(allocated),
+        predictedMastery: predictMasteryGain(
+          currentMastery,
+          Math.floor(allocated),
+          targetMastery
+        ),
       });
     }
   });
