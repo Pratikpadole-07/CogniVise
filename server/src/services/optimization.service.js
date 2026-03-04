@@ -3,6 +3,8 @@ import Topic from "../models/Topic.js";
 import UserTopicStats from "../models/UserTopicStats.js";
 import { topologicalSort } from "../graph/dependencyResolver.js";
 import { predictMasteryGain } from "../utils/masteryPredictor.js";
+import { calculateFeasibilityScore } 
+from "../utils/feasibilityCalculator.js";
 
 export const generateOptimizedPlan = async (
   userId,
@@ -103,10 +105,13 @@ export const generateOptimizedPlan = async (
       });
     }
   });
+  const feasibilityScore =
+  calculateFeasibilityScore(allocation, targetMastery);
 
   return {
     totalDays,
     totalAvailableHours,
     allocation,
+    feasibilityScore
   };
 };

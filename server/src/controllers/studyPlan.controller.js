@@ -66,6 +66,7 @@ export const createStudyPlan = async (req, res) => {
         totalDays: optimizationResult.totalDays,
         totalAvailableHours:
           optimizationResult.totalAvailableHours,
+        feasibilityScore: optimizationResult.feasibilityScore 
       },
     });
   } catch (error) {
