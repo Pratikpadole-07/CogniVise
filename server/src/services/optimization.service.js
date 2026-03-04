@@ -3,8 +3,8 @@ import Topic from "../models/Topic.js";
 import UserTopicStats from "../models/UserTopicStats.js";
 import { topologicalSort } from "../graph/dependencyResolver.js";
 import { predictMasteryGain } from "../utils/masteryPredictor.js";
-import { calculateFeasibilityScore } 
-from "../utils/feasibilityCalculator.js";
+import { calculateFeasibilityScore } from "../utils/feasibilityCalculator.js";
+import { analyzeRisks } from "../utils/riskAnalyzer.js";
 
 export const generateOptimizedPlan = async (
   userId,
@@ -37,7 +37,7 @@ export const generateOptimizedPlan = async (
 
   const statsMap = {};
   stats.forEach((stat) => {
-    statsMap[stat.topicId.toString()] = stat.masteryScore;
+    statsMap[stat.topicId.toString()] = stat;
   });
 
   let model = {
@@ -53,7 +53,7 @@ export const generateOptimizedPlan = async (
     const topic = topicMap[topicId];
 
     const currentMastery =
-      statsMap[topic._id.toString()] || 0;
+      statsMap[topic._id.toString()]?.masteryScore || 0;
 
     const deficit = Math.max(
       0,
@@ -64,7 +64,7 @@ export const generateOptimizedPlan = async (
 
     const prereqNotMet = topic.prerequisites.some((pre) => {
       const preMastery =
-        statsMap[pre._id.toString()] || 0;
+        statsMap[pre._id.toString()]?.masteryScore || 0;
       return preMastery < targetMastery * 0.6;
     });
 
@@ -88,30 +88,54 @@ export const generateOptimizedPlan = async (
     model.variables[variableName][variableName] = 1;
   }
 
+  if (Object.keys(model.variables).length === 0) {
+    return {
+      totalDays,
+      totalAvailableHours,
+      allocation: [],
+      feasibilityScore: 0,
+      alerts: [],
+    };
+  }
+
   const results = solver.Solve(model);
 
   let allocation = [];
 
   Object.keys(results).forEach((key) => {
     if (key.startsWith("x_") && results[key] > 0) {
+      const topicId = key.replace("x_", "");
+      const allocated = Math.floor(results[key]);
+
+      const currentMastery =
+        statsMap[topicId]?.masteryScore || 0;
+
       allocation.push({
-        topicId: topic.topicId,
-        allocatedHours: Math.floor(allocated),
+        topicId,
+        allocatedHours: allocated,
         predictedMastery: predictMasteryGain(
           currentMastery,
-          Math.floor(allocated),
+          allocated,
           targetMastery
         ),
       });
     }
   });
+
   const feasibilityScore =
-  calculateFeasibilityScore(allocation, targetMastery);
+    calculateFeasibilityScore(allocation, targetMastery);
+
+  const alerts = analyzeRisks(
+    allocation,
+    statsMap,
+    targetMastery
+  );
 
   return {
     totalDays,
     totalAvailableHours,
     allocation,
-    feasibilityScore
+    feasibilityScore,
+    alerts,
   };
 };
