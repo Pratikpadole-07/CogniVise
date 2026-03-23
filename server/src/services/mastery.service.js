@@ -2,10 +2,12 @@ import StudyLog from "../models/StudyLog.js";
 import UserTopicStats from "../models/UserTopicStats.js";
 import Topic from "../models/Topic.js";
 import { applyDecay } from "../utils/decayCalculator.js";
-
+import { calculateVelocity } from "../utils/velocityCalculator.js";
 
 const updateMastery=async(userId,topicId)=>{
     const logs=await StudyLog.find({userId,topicId});
+    const velocity = calculateVelocity(logs);
+    stats.learningVelocity = velocity;
     if(logs.length===0){
         return null;
     }

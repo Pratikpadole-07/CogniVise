@@ -5,7 +5,7 @@ import { topologicalSort } from "../graph/dependencyResolver.js";
 import { predictMasteryGain } from "../utils/masteryPredictor.js";
 import { calculateFeasibilityScore } from "../utils/feasibilityCalculator.js";
 import { analyzeRisks } from "../utils/riskAnalyzer.js";
-
+import { getPersonalizedDifficulty } from "../utils/difficultyAdjuster.js";
 export const generateOptimizedPlan = async (
   userId,
   dailyAvailableHours,
@@ -50,44 +50,58 @@ export const generateOptimizedPlan = async (
   };
 
   for (const topicId of sortedTopicIds) {
-    const topic = topicMap[topicId];
+  const topic = topicMap[topicId];
 
-    const currentMastery =
-      statsMap[topic._id.toString()]?.masteryScore || 0;
+  const stat = statsMap[topic._id.toString()];
 
-    const deficit = Math.max(
-      0,
-      targetMastery - currentMastery
-    );
+  const currentMastery = stat?.masteryScore || 0;
 
-    if (deficit === 0) continue;
+  const deficit = Math.max(
+    0,
+    targetMastery - currentMastery
+  );
 
-    const prereqNotMet = topic.prerequisites.some((pre) => {
-      const preMastery =
-        statsMap[pre._id.toString()]?.masteryScore || 0;
-      return preMastery < targetMastery * 0.6;
-    });
+  if (deficit === 0) continue;
 
-    if (prereqNotMet) continue;
+  const prereqNotMet = topic.prerequisites.some((pre) => {
+    const preMastery =
+      statsMap[pre._id.toString()]?.masteryScore || 0;
+    return preMastery < targetMastery * 0.6;
+  });
 
-    const efficiency =
-      (deficit * topic.importanceWeight) /
-      topic.estimatedHoursToMaster;
+  if (prereqNotMet) continue;
 
-    const variableName = `x_${topic._id.toString()}`;
+  const personalizedDifficulty = getPersonalizedDifficulty(
+    topic.difficultyWeight,
+    stat
+  );
 
-    model.variables[variableName] = {
-      score: efficiency,
-      totalHours: 1,
-    };
+  const velocity = stat?.learningVelocity || 1;
+  const safeVelocity = Math.max(0.1, velocity);
 
-    model.constraints[variableName] = {
-      max: topic.estimatedHoursToMaster,
-    };
+  let adjustedHours =
+    topic.estimatedHoursToMaster *
+    (personalizedDifficulty / 5);
 
-    model.variables[variableName][variableName] = 1;
-  }
+  // Prevent instability
+  adjustedHours = Math.max(5, adjustedHours);
 
+  const efficiency =
+    (deficit * topic.importanceWeight * safeVelocity) /
+    adjustedHours;
+
+  const variableName = `x_${topic._id.toString()}`;
+
+  model.variables[variableName] = {
+    score: efficiency,
+    totalHours: 1,
+    [variableName]: 1,
+  };
+
+  model.constraints[variableName] = {
+    max: adjustedHours,
+  };
+}
   if (Object.keys(model.variables).length === 0) {
     return {
       totalDays,
@@ -105,7 +119,7 @@ export const generateOptimizedPlan = async (
   Object.keys(results).forEach((key) => {
     if (key.startsWith("x_") && results[key] > 0) {
       const topicId = key.replace("x_", "");
-      const allocated = Math.floor(results[key]);
+      const allocated = Math.floor(results[key].toFixed(2));
 
       const currentMastery =
         statsMap[topicId]?.masteryScore || 0;
