@@ -1,27 +1,29 @@
 export const calculateVelocity = (logs) => {
   if (logs.length < 2) return 0;
 
-  // Sort logs by date
-  logs.sort((a, b) => new Date(a.date) - new Date(b.date));
+  const recentLogs = logs.slice(-6); // use last 6 logs
 
-  let totalTime = 0;
-  let totalGain = 0;
+  let gains = [];
+  let times = [];
 
-  for (let i = 1; i < logs.length; i++) {
-    const prev = logs[i - 1];
-    const curr = logs[i];
+  for (let i = 1; i < recentLogs.length; i++) {
+    const prev = recentLogs[i - 1];
+    const curr = recentLogs[i];
 
-    const prevAccuracy =
+    const prevAcc =
       prev.correct / prev.problemsAttempted;
 
-    const currAccuracy =
+    const currAcc =
       curr.correct / curr.problemsAttempted;
 
-    const gain = (currAccuracy - prevAccuracy) * 100;
+    const gain = (currAcc - prevAcc) * 100;
 
-    totalGain += gain;
-    totalTime += curr.timeSpentMinutes;
+    gains.push(gain);
+    times.push(curr.timeSpentMinutes);
   }
+
+  const totalGain = gains.reduce((a, b) => a + b, 0);
+  const totalTime = times.reduce((a, b) => a + b, 0);
 
   if (totalTime === 0) return 0;
 

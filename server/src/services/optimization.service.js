@@ -114,28 +114,37 @@ export const generateOptimizedPlan = async (
 
   const results = solver.Solve(model);
 
-  let allocation = [];
+let allocation = [];
 
-  Object.keys(results).forEach((key) => {
-    if (key.startsWith("x_") && results[key] > 0) {
-      const topicId = key.replace("x_", "");
-      const allocated = Math.floor(results[key].toFixed(2));
+Object.keys(results).forEach((key) => {
+  if (key.startsWith("x_") && results[key] > 0) {
+    const topicId = key.replace("x_", "");
 
-      const currentMastery =
-        statsMap[topicId]?.masteryScore || 0;
+    const allocated = Number(results[key].toFixed(2));
 
-      allocation.push({
-        topicId,
-        allocatedHours: allocated,
-        predictedMastery: predictMasteryGain(
-          currentMastery,
-          allocated,
-          targetMastery
-        ),
-      });
-    }
-  });
+    const stat = statsMap[topicId];
 
+    const currentMastery = stat?.masteryScore || 0;
+
+    const velocity = stat?.learningVelocity || 1;
+
+    const adaptiveRate = Math.max(
+      0.02,
+      Math.min(0.1, velocity * 0.02)
+    );
+
+    allocation.push({
+      topicId,
+      allocatedHours: allocated,
+      predictedMastery: predictMasteryGain(
+        currentMastery,
+        allocated,
+        targetMastery,
+        adaptiveRate
+      ),
+    });
+  }
+});
   const feasibilityScore =
     calculateFeasibilityScore(allocation, targetMastery);
 

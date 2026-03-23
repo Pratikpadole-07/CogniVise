@@ -21,8 +21,31 @@ const updateMastery=async(userId,topicId)=>{
     totalTime += log.timeSpentMinutes;
   });
 
-  const accuracy = (totalCorrect / totalAttempted) * 100;
-  const avgTimePerProblem = totalTime / totalAttempted;
+  const recentLogs = logs.slice(-5); // last 5 sessions
+
+let smoothedAttempted = 0;
+let smoothedCorrect = 0;
+
+recentLogs.forEach((log) => {
+  smoothedAttempted += log.problemsAttempted;
+  smoothedCorrect += log.correct;
+});
+
+const accuracy =
+  smoothedAttempted > 0
+    ? (smoothedCorrect / smoothedAttempted) * 100
+    : 0;
+  
+    
+
+  recentLogs.forEach((log) => {
+    totalTime += log.timeSpentMinutes;
+  });
+
+  const avgTimePerProblem =
+    smoothedAttempted > 0
+      ? totalTime / smoothedAttempted
+     : 0;  
 
   // SpeedScore (simple inverse logic)
   const speedScore = avgTimePerProblem > 0 
