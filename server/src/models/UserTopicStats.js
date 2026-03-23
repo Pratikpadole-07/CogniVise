@@ -39,6 +39,10 @@ const userTopicStatsSchema = new mongoose.Schema(
     lastPracticed: {
       type: Date,
     },
+    learningVelocity: {
+    type: Number,
+    default: 0,
+    },
   },
   { timestamps: true }
 );
